@@ -2,7 +2,7 @@
 import Crypto.Scrypt 
 import Data.Map
 
-data Avatar = ImageB64
+data Avatar = ImageB64 ByteString
             | GravatarMail String
             | ImageURL URI
 --            | Server stored/encrypted binary image? 
