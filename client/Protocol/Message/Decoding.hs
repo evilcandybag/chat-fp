@@ -1,63 +1,58 @@
-module Protocol where
+module Protocol.Message.Decoding where
+
+import Protocol.Message
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 import Data.Word
 import Data.Time.Clock
 import Data.Time.Clock.POSIX
-import Data.Text
+import Data.Text (Text)
 import Data.Text.Encoding
 import Data.Bits
 import Data.UUID
 import Data.Binary.Get
 import Data.Maybe
-import Data.Map
+import qualified Data.Map as Map
 
-data Message = Message Header [Block]
+type Chunk = Either Header Block
 
-data Header = Header { msgLength    :: !Index
-                     , headId       :: !Ident
-                     , version      :: !Version
-                     , timestamp    :: !Timestamp
-                     , userid       :: !UserID
-                     , headSegments :: ![Segment]
-                     }
-
-data Block = Block { blockIndex    :: !Index
-                   , blockId       :: !Ident
-                   , blockSegments :: ![Segment]
-               }
-type Index = Integer
-
-type Ident = UUID
-
-type Version = Integer
-
-type Timestamp = UTCTime
-
-type UserID = UUID
+type SortedBlocks = Map.Map UUID [Block]
 
 
-
-data Segment = Txt Text
-             | Img BS.ByteString
-             | CustomTxt Text
-             | CustomBin BS.ByteString
-             | END
-
-
-parseMessages :: [BS.ByteString] -> ([Message], ([Header],[Block])
-parseMessages bss = 
+-- | Parse a list of ByteString into a list of Messages, and a tuple containing whatever 
+--   Headers and Blocks left over. 
+--   Assumes that each ByteString is 128 bytes in length.
+decodeMessages :: [BS.ByteString] -> ([Message], ([Header],SortedBlocks))
+decodeMessages bss = mkMessages headers bMap
   where
-    chunks = map fromBytes bss
+    (headers, bMap) = sortChunks $ map fromBytes bss
 
-sortChunks :: ([Header], Map UUID [Block]) -> [Either Header Block] ->  ([Header], Map UUID [Block])
-sortChunks chunks [] = chunks
-sortChunks (hs, bMap) (chunk:chunks) = case chunk of 
-  Right header -> sortChunks ((header:hs),bMap) chunks
-  Left block   -> sortChunks (hs, insert (blockId block) block bMap) chunks
+mkMessages :: [Header] ->  SortedBlocks -> ([Message], ([Header],SortedBlocks))
+mkMessages (h:hs) bMap = (msgs, restBlocks')
+  where 
+    (msg,restBlocks)   = mkMessage h bMap
+    (msgs,restBlocks') = mkMessages hs restBlocks
 
-fromBytes :: BS.ByteString -> Either Header Block
+-- | Construct a message from a header and a set of blocks. 
+mkMessage :: Header -> SortedBlocks -> (Message, SortedBlocks)
+mkMessage header bMap = let 
+  hID = headId header
+  blocks = Map.lookup hID bMap
+    in case blocks of 
+      Just blocks' -> (Message header blocks', Map.delete hID bMap)
+      Nothing      -> (Message header [], bMap)
+      
+
+sortChunks :: [Chunk] ->  ([Header], SortedBlocks)
+sortChunks = sortChunks' ([],Map.empty)
+  where 
+    sortChunks' chunks [] = chunks
+    sortChunks' (hs, bMap) (chunk:chunks) = case chunk of 
+      Left header -> sortChunks' ((header:hs),bMap) chunks
+      Right block   -> sortChunks' (hs, Map.insertWith (++) (blockId block) [block] bMap) chunks
+
+fromBytes :: BS.ByteString -> Chunk
 fromBytes bs = if testBit (BS.head bs) 0
   then Left $ parseHeader bs
   else Right $ parseBlock bs
