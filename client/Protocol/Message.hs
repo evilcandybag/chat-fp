@@ -20,26 +20,26 @@ data Header = Header { msgLength    :: !Index
                      , headId       :: !Ident
                      , version      :: !Version
                      , timestamp    :: !Timestamp
-                     , userid       :: !UserID
+                     , userId       :: !UserID
                      , headSegments :: ![Segment]
                      }
 
 data Block = Block { blockIndex    :: !Index
                    , blockId       :: !Ident
                    , blockSegments :: ![Segment]
-               }
+                   }
 type Index = Integer
 
 type Ident = UUID
 
-type Version = Integer
+type Version = Word8
 
 type Timestamp = UTCTime
 
 type UserID = UUID
 
 data Segment = Txt Text
-             | Img ByteString
+             | Img UUID
              | CustomTxt Text
              | CustomBin ByteString
              | END
@@ -78,3 +78,9 @@ mergeSegments :: [Segment] -> [Segment]
 mergeSegments [] = []
 mergeSegments ((Txt t1):(Txt t2):ss) = (Txt $ T.append t1 t2):mergeSegments ss
 mergeSegments (s:ss) = (s:mergeSegments ss)
+
+chunkSize :: Int
+chunkSize = 128
+
+maxIndex :: Int
+maxIndex = fromIntegral $ (maxBound :: Word16) `clearBit` 0 

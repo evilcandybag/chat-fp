@@ -72,15 +72,18 @@ getBlock = do
             }
 
 getIx :: Get Integer
-getIx = fmap (fromIntegral . (flip clearBit 0)) getWord16le
+getIx = fmap (fromIntegral . (`clearBit` 0)) getWord16le
 
 getUUID :: Get UUID
 getUUID = do 
   bs <- getByteString 16
-  return $ case (fromByteString . BSL.fromStrict) bs of 
-          Just ident -> ident
-          Nothing -> error $ 
-            "Invalid length of ByteString for UUID. Expected 16, got: " ++ 
+  return $ parseUUID bs
+
+parseUUID :: BS.ByteString -> UUID
+parseUUID bs = case (fromByteString . BSL.fromStrict) bs of
+    Just uuid -> uuid
+    Nothing -> error $
+        "Invalid length of ByteString for UUID. Expected 16, got: " ++ 
               (show $ BS.length bs)
 
 parseHeader :: BS.ByteString -> Header
@@ -89,7 +92,7 @@ getHeader :: Get Header
 getHeader = do
   ix <- getIx
   msgId <- getUUID
-  ver <- fmap fromIntegral getWord8
+  ver <- getWord8
   time <- fmap (posixSecondsToUTCTime . fromIntegral) getWord32le 
   usrId <- getUUID
   segments <- getSegments
@@ -98,7 +101,7 @@ getHeader = do
           headId = msgId,
           version = ver,
           timestamp = time,
-          userid = usrId,
+          userId = usrId,
           headSegments = segments
           }
 
@@ -121,7 +124,7 @@ getSegment = do
   return $ case typ of 
     0 -> END
     1 -> Txt $ decodeUtf8 bytes
-    2 -> Img bytes
+    2 -> Img $ parseUUID bytes
     3 -> CustomTxt $ decodeUtf8 bytes
     4 -> CustomBin bytes
     x -> error $ "Segment with unknown type byte: " ++ show x

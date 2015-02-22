@@ -1,32 +1,117 @@
-module Encoding where
+module Protocol.Message.Encoding where
 
 
 import Protocol.Message
 import Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BSL
 import Data.ByteString.Builder
 import Data.Text.Encoding
+import Crypto.Padding
+import Data.Word
+import Data.UUID
+import Data.Monoid
+import Data.Time.Clock.POSIX
+import Data.Bits
 
--- | Encode a header into a list of ByteStrings, each 128 bits long. 
+type SegmentData = (Word8, Int, ByteString)
+
+data EncoderState = 
+  EncoderState { parsed :: [ByteString]
+               , index :: Word16
+               , chunkRemaining :: Int
+               , segment :: SegmentData
+               , uuid :: UUID
+               }
+
+
+-- | Encode a header into a list of ByteStrings, each chunkSize bits long. 
 encodeHeader :: Header -> [ByteString]
-
-
-encodeSegment :: ByteString -> [ByteString] -> Segment -> Int -> (Builder, [ByteString], Int) 
-encodeSegment bs bss seg left =  
-
-encodeSegment' :: ByteString -> (Word8,ByteString) -> Int -> (ByteString, ByteString, Int)
-encodeSegment' bs (typ,dat) left = if dataLength <= left 
-    then (append bs (typ `snoc` dat), BS.empty, left - dataLength)
-    else 
+encodeHeader header = if numBlocks < maxIndex
+    then head':blocks
+    else error $ "Attempting to encode too many blocks: " ++ (show numBlocks) ++
+                 " max encodable: " ++ (show maxIndex)
   where
-    dataLength = 1 + BS.length dat
+    initialState = EncoderState 
+        { parsed = [bsHeader]
+        , index = 0
+        , chunkRemaining = chunkSize - BS.length bsHeader
+        , uuid = hID
+        , segment = seg 
+        }
+    bsHeader = builderToBS headerBuilder
+    headerBuilder = word16LE 0 <> uuidToBS hID <> word8 (version header) <> 
+        word32LE time <> uuidToBS uID 
+    hID = headId header 
+    uID = userId header
+    uuidToBS = (lazyByteString . toByteString)
+    builderToBS = (BSL.toStrict . toLazyByteString)
+    time = floor . utcTimeToPOSIXSeconds $ timestamp header
+    (seg:segs) = map segmentData $ headSegments header
+    finalState = encodeSegments initialState segs
+    (head:blocks) = reverse $ parsed finalState
+    numBlocks = length blocks
+    head' = builderToBS $ bsLength <> byteString (BS.drop 2 head)
+    hLength = index finalState
+    bsLength = word16LE (hLength `setBit` 0)
+
+encodeSegments :: EncoderState -> [SegmentData] -> EncoderState
+encodeSegments state [] = state
+encodeSegments state (seg:segs) = encodeSegments state' {segment = seg} segs
+  where
+    state' = encodeSegment state
+
+encodeSegment :: EncoderState -> 
+                    EncoderState
+encodeSegment  state
+  | left < min = encodeBlock state { parsed = (pad bs:bss)
+                                   , segment = s
+                                   } 
+  | otherwise = if bsLength > left
+    then encodeBlock state { parsed = bss' 
+                           , segment = s'
+                           }
+    else state { parsed = (bs':bss)
+               , segment = (typ, min, BS.empty)
+               , chunkRemaining = left'
+               }
+  where
+    bs' = BS.append bs (typ `BS.cons` dat)
+    bsLength = BS.length bs'
+    left' = left - bsLength
+    bss' = (pad bs'':bss)
+    s' = (typ,min, dat')
+    (bs'',dat') = BS.splitAt chunkSize bs'
+    (bs:bss) = parsed state
+    s@(typ,min,dat) = segment state
+    left = chunkRemaining state
+
+pad :: ByteString -> ByteString
+pad bs 
+  | diff == 0 = bs
+  | diff > 0 = padESP chunkSize (bs `BS.snoc` 0) 
+  | otherwise = error $ "Padding a chunk larger than chunkSize: " ++ (show chunkSize)
+  where
+    bLength = BS.length bs 
+    diff = chunkSize - bLength
+
+
+encodeBlock :: EncoderState -> EncoderState 
+encodeBlock state = encodeSegment state {parsed = (blockPrefix:parsed state)}
+  where
+    left = chunkSize - BS.length blockPrefix 
+    blockPrefix = BSL.toStrict $ toLazyByteString $ word16LE index' <> 
+        (lazyByteString $ toByteString $ uuid state)
+    index' = succ $ index state
+
 
 -- | Get the data in a Segment as a ByteString
-segmentData :: Segment -> (Word8, ByteString)
-segm s = case s of 
-  Txt text       -> (1, encodeUtf8 text)
-  Img bs         -> (2, bs)
-  CustomTxt text -> (3, encodeUtf8 text)
-  CustomBin bs   -> (4, bs)
-  END            -> (0, BS.empty)
+segmentData :: Segment -> SegmentData
+segmentData s = case s of 
+  Txt text       -> (1, 3, encodeUtf8 text)
+  Img bs         -> (2, 18, BSL.toStrict $ toByteString bs)
+  CustomTxt text -> (3, 3, encodeUtf8 text)
+  CustomBin bs   -> (4, 3, bs)
+  END            -> (0, 1, BS.empty)
+
 
