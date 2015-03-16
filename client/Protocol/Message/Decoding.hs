@@ -14,6 +14,7 @@ import Data.UUID
 import Data.Binary.Get
 import Data.Maybe
 import qualified Data.Map as Map
+import Debug.Trace
 
 type Chunk = Either Header Block
 
@@ -29,7 +30,8 @@ decodeMessages bss = mkMessages headers bMap
     (headers, bMap) = sortChunks $ map fromBytes bss
 
 mkMessages :: [Header] ->  SortedBlocks -> ([Message], ([Header],SortedBlocks))
-mkMessages (h:hs) bMap = (msgs, restBlocks')
+mkMessages [] bMap = ([], ([], bMap))
+mkMessages (h:hs) bMap = ((msg:msgs), restBlocks')
   where 
     (msg,restBlocks)   = mkMessage h bMap
     (msgs,restBlocks') = mkMessages hs restBlocks
@@ -87,7 +89,8 @@ parseUUID bs = case (fromByteString . BSL.fromStrict) bs of
               (show $ BS.length bs)
 
 parseHeader :: BS.ByteString -> Header
-parseHeader bs = undefined
+parseHeader bs = runGet getHeader $ BSL.fromStrict bs
+
 getHeader :: Get Header 
 getHeader = do
   ix <- getIx
@@ -111,10 +114,11 @@ getSegments = do
   if empty
     then return []
     else do seg <- getSegment
-            segs <- getSegments
-            return $ case seg of 
-              END -> [seg]
-              _ -> (seg:segs)
+            case seg of 
+              END -> return [seg]
+              _ -> do 
+                    segs <- getSegments
+                    return (seg:segs)
 
 getSegment :: Get Segment 
 getSegment = do

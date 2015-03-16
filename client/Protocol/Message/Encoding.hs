@@ -13,6 +13,7 @@ import Data.UUID
 import Data.Monoid
 import Data.Time.Clock.POSIX
 import Data.Bits
+import Debug.Trace
 
 type SegmentData = (Word8, Int, ByteString)
 
@@ -23,7 +24,7 @@ data EncoderState =
                , segment :: SegmentData
                , uuid :: UUID
                }
-
+               deriving Show
 
 -- | Encode a header into a list of ByteStrings, each chunkSize bits long. 
 encodeHeader :: Header -> [ByteString]
@@ -56,7 +57,10 @@ encodeHeader header = if numBlocks < maxIndex
     bsLength = word16LE (hLength `setBit` 0)
 
 encodeSegments :: EncoderState -> [SegmentData] -> EncoderState
-encodeSegments state [] = state
+encodeSegments state [] = state' { parsed = (pad bs : bss) } 
+  where 
+    state' = encodeSegment state 
+    (bs:bss) = parsed state'
 encodeSegments state (seg:segs) = encodeSegments state' {segment = seg} segs
   where
     state' = encodeSegment state
@@ -67,7 +71,7 @@ encodeSegment  state
   | left < min = encodeBlock state { parsed = (pad bs:bss)
                                    , segment = s
                                    } 
-  | otherwise = if bsLength > left
+  | otherwise = if bsLength > left && BS.length dat' > 0
     then encodeBlock state { parsed = bss' 
                            , segment = s'
                            }
@@ -76,8 +80,9 @@ encodeSegment  state
                , chunkRemaining = left'
                }
   where
-    bs' = BS.append bs (typ `BS.cons` dat)
+    bs' = BS.append bs (typ `BS.cons` (fromIntegral len-2) `BS.cons` dat)
     bsLength = BS.length bs'
+    len = Prelude.min (2 + BS.length dat) left
     left' = left - bsLength
     bss' = (pad bs'':bss)
     s' = (typ,min, dat')
@@ -89,11 +94,14 @@ encodeSegment  state
 pad :: ByteString -> ByteString
 pad bs 
   | diff == 0 = bs
-  | diff > 0 = padESP chunkSize (bs `BS.snoc` 0) 
+  | diff == 1 = bs'
+  | diff > 0 = padded
   | otherwise = error $ "Padding a chunk larger than chunkSize: " ++ (show chunkSize)
   where
     bLength = BS.length bs 
     diff = chunkSize - bLength
+    bs' = bs `BS.snoc` 0 
+    padded = padESP chunkSize bs'
 
 
 encodeBlock :: EncoderState -> EncoderState 
