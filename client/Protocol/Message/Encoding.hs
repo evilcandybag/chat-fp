@@ -7,7 +7,6 @@ import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
 import Data.ByteString.Builder
 import Data.Text.Encoding
-import Crypto.Padding
 import Data.Word
 import Data.UUID
 import Data.Monoid
@@ -92,16 +91,10 @@ encodeSegment  state
     left = chunkRemaining state
 
 pad :: ByteString -> ByteString
-pad bs 
-  | diff == 0 = bs
-  | diff == 1 = bs'
-  | diff > 0 = padded
-  | otherwise = error $ "Padding a chunk larger than chunkSize: " ++ (show chunkSize)
+pad bs = BS.append bs (BS.pack $ take n padding)
   where
-    bLength = BS.length bs 
-    diff = chunkSize - bLength
-    bs' = bs `BS.snoc` 0 
-    padded = padESP chunkSize bs'
+    padding = [0..] :: [Word8]
+    n = chunkSize - (BS.length bs)
 
 
 encodeBlock :: EncoderState -> EncoderState 

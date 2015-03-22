@@ -56,8 +56,26 @@ instance Eq Block where
 instance Ord Block where 
   compare a b = compare (blockIndex a) (blockIndex b)
 
+-- | Simple equality by unique identifier. Sufficient for most cases. 
 instance Eq Header where
-  (==) a b = (headId a) == (headId b)
+  (==) a b = headId a == headId b 
+
+-- | More thorough equality check that goes through all properties. 
+headerEquals :: Header -> Header -> Bool
+headerEquals a b = headId a == headId b
+                && msgLength a == msgLength b
+                && timestamp a == timestamp b
+                && userId a == userId b
+                && headSegments a == headSegments b
+
+
+instance Eq Segment where
+  (==) (Txt ta) (Txt tb) = ta == tb
+  (==) (Img ida) (Img idb) = ida == idb
+  (==) (CustomTxt cta) (CustomTxt ctb) = cta == ctb
+  (==) (CustomBin cba) (CustomBin cbb) = cba == cbb
+  (==) END END = True
+  (==) _ _ = False 
 
 instance Ord Header where 
   compare a b = compare (timestamp a) (timestamp b)

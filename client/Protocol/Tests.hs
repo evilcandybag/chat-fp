@@ -53,7 +53,15 @@ bigUUID = fromWords bigNo bigNo bigNo bigNo
   where 
     bigNo = maxBound :: Word32
 
-correctEncodedLength header = all (\l -> l == chunkSize) (traceShow lengths lengths)
+encodeDecode header = header == header'
+  where
+    (msg:_,_) = decodeMessages $ encodeHeader header
+    header' = unBlockify msg
+
+
+prop_CorrectEncodedChunkSize :: Header -> Bool
+prop_CorrectEncodedChunkSize header = all (\l -> l == chunkSize) 
+                                          (traceShow lengths lengths)
   where
     lengths = map BS.length $ encodeHeader header
 
@@ -81,19 +89,36 @@ instance Arbitrary Segment where
 
 
 failing = map unBlockify 
-    [
-        {-Header {msgLength = 1, headId = 0583e874-007c-a197-0768-1d4f035ce4c1, version = 1, timestamp = 1970-01-01 00:00:33 UTC, userId = 0283656b-0196-5d3c-00
+  [
+      {-Header {msgLength = 1, headId = 0583e874-007c-a197-0768-1d4f035ce4c1, version = 1, timestamp = 1970-01-01 00:00:33 UTC, userId = 0283656b-0196-5d3c-00
 92-2f81034025cb, headSegments = [Txt "Tauiy whiniter com unatsienlous crenaling; reiiicenmassy deriti inest sur antleer exowianpum, stotibezes apble a
-loily peb, re nur au unraaly byverpuer; egcron, cengatly obecused deiy osouer in?"]}-},
-        (Message (Header { msgLength = 1,
-          headId = (fromJust . fromString) "00000089-0000-00ad-0000-00cf00000023",
-          version = 1,
-          timestamp = (posixSecondsToUTCTime . fromIntegral) 6,
-          userId = (fromJust . fromString) "0000000c-0000-00c3-0000-002e0000009e",
-          headSegments = [Txt $ T.pack "Cersurdleer arnala decraatly deny noisker an; detterest au in pre, exile vercelsel un."]
-          })
-          []
-          )
+loily peb, re nur au unraaly byverpuer; egcron, cengatly obecused deiy osouer in?"]},-}
+    (Message (Header {msgLength = 1, 
+      headId = mkid "d6acdef2-c8aa-45a2-3834-968d7031ff68", 
+      version = 1, 
+      timestamp = tim 25, 
+      userId = mkid "301a109d-d2fb-1150-88bf-b4a395ec1446", 
+      headSegments = [Txt $ T.pack "Despolia miser, tuning axic initial phys e, cor re sciaiicy anaer, uniiy ferble aper!"]
+      })
+      []
+      ),
+
+    (Message (Header { msgLength = 1,
+      headId = mkid "00000089-0000-00ad-0000-00cf00000023",
+      version = 1,
+      timestamp = tim 6,
+      userId = mkid "0000000c-0000-00c3-0000-002e0000009e",
+      headSegments = [Txt $ T.pack "Cersurdleer arnala decraatly deny noisker an; detterest au in pre, exile vercelsel un."]
+      })
+      []
+      )
 
 
-    ]
+  ]
+    where
+      mkid = (fromJust . fromString)
+      tim = (posixSecondsToUTCTime . fromIntegral)
+
+bsh = encodeHeader $ head failing
+
+
